@@ -4,6 +4,7 @@ import com.github.shyiko.mysql.binlog.event.deserialization.ByteArrayEventDataDe
 import com.github.shyiko.mysql.binlog.event.deserialization.EventDeserializer;
 import com.google.common.collect.Lists;
 import com.pardot.ReplicationFollower.ChangeSet.ChangeSet;
+import com.pardot.ReplicationFollower.ChangeSet.ChangeType;
 import com.pardot.ReplicationFollower.ChangeSet.FieldChange;
 import com.pardot.ReplicationFollower.DatabaseSchema.DatabaseColumnDef;
 import com.pardot.ReplicationFollower.DatabaseSchema.DatabaseSchemaDef;
@@ -11,6 +12,7 @@ import com.pardot.ReplicationFollower.DatabaseSchema.DatabaseTableDef;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.sql.Types;
 import java.util.*;
 
@@ -91,40 +93,90 @@ public class ReplicationFollower {
 
             public void onEvent(Event event) {
                 log.info("Got EventType:" + event.getHeader().getEventType());
-                log.info("Data:"+event.getData());
+                //log.info("Data:"+event.getData());
 
-                if (event.getData() instanceof QueryEventData) {
-                    handleQueryEvent(event, (QueryEventData)event.getData());
+                if (event.getHeader().getEventType().equals(EventType.EXT_UPDATE_ROWS)) {
+                    handleUpdateEvent(event, (UpdateRowsEventData) event.getData());
+                } else if (event.getHeader().getEventType().equals(EventType.TABLE_MAP)) {
+                    handleTableMapEvent(event, (TableMapEventData) event.getData());
+                } else if (event.getHeader().getEventType().equals(EventType.EXT_WRITE_ROWS)) {
+                    handleInsertEvent(event, (WriteRowsEventData)event.getData());
+                } else if (event.getHeader().getEventType().equals(EventType.EXT_DELETE_ROWS)) {
+                    handleDeleteEvent(event, (DeleteRowsEventData) event.getData());
                 }
-                if (event.getData() instanceof UpdateRowsEventData) {
-                    handleQueryEvent(event, (UpdateRowsEventData)event.getData());
-                }
-                if (event.getData() instanceof TableMapEventData) {
-                    handleQueryEvent(event, (TableMapEventData) event.getData());
-                }
+
             }
         });
-        log.info("Connecting");
         client.connect();
-        log.info("Connected");
+    }
+
+    private void handleDeleteEvent(Event event, DeleteRowsEventData data) {
+        long tableId = data.getTableId();
+        DatabaseTableDef tableDef = getSchemaDef().getTable(tableId);
+        log.info("Deleting from table " + tableDef.getTableName());
+
+        Iterator i$ = data.getRows().iterator();
+        while(i$.hasNext()) {
+            Serializable[] row = (Serializable[])i$.next();
+            ArrayList<Object> beforeValues = Lists.newArrayList((Object[]) row);
+
+            ChangeSet myChangeSet = new ChangeSet("unknown", tableDef.getTableName(), ChangeType.DELETE);
+
+            // Builder before values
+            for (int x=0; x<beforeValues.size(); x++) {
+                int columnId = data.getIncludedColumns().nextSetBit(x);
+                DatabaseColumnDef columnDef = tableDef.getColumn(columnId);
+
+                Object after = beforeValues.get(x);
+
+                FieldChange fieldChange = new FieldChange(columnDef.getColumnName(), columnDef.getColumnTypeName());
+                fieldChange.setBeforeValue(after);
+                myChangeSet.addFieldChange(fieldChange);
+            }
+            log.info("Deleted:"+myChangeSet);
+        }
     }
 
     public void handleQueryEvent(Event event, QueryEventData data) {
 
     }
 
-    public void handleQueryEvent(Event event, TableMapEventData data) {
-        log.info("Table:"+data.getTableId()+" - " + data.getTable());
+    private void handleInsertEvent(Event event, WriteRowsEventData data) {
+        long tableId = data.getTableId();
+        DatabaseTableDef tableDef = getSchemaDef().getTable(tableId);
+        log.info("Inserting table " + tableDef.getTableName());
+
+        Iterator i$ = data.getRows().iterator();
+        while(i$.hasNext()) {
+            Serializable[] row = (Serializable[])i$.next();
+            ArrayList<Object> afterValues = Lists.newArrayList((Object[]) row);
+
+            ChangeSet myChangeSet = new ChangeSet("unknown", tableDef.getTableName(), ChangeType.UPDATE);
+
+            // Builder after values
+            for (int x=0; x<afterValues.size(); x++) {
+                int columnId = data.getIncludedColumns().nextSetBit(x);
+                DatabaseColumnDef columnDef = tableDef.getColumn(columnId);
+
+                Object after = afterValues.get(x);
+
+                FieldChange fieldChange = new FieldChange(columnDef.getColumnName(), columnDef.getColumnTypeName());
+                fieldChange.setAfterValue(after);
+                myChangeSet.addFieldChange(fieldChange);
+            }
+            log.info("Inserted:"+myChangeSet);
+        }
+    }
+
+    public void handleTableMapEvent(Event event, TableMapEventData data) {
+        log.info("Updating TableMap: " + data.getTable());
         getSchemaDef().updateTable(data);
     }
 
-    public void handleQueryEvent(Event event, UpdateRowsEventData data) {
+    public void handleUpdateEvent(Event event, UpdateRowsEventData data) {
         long tableId = data.getTableId();
         DatabaseTableDef tableDef = getSchemaDef().getTable(tableId);
         log.info("Updated table " + tableDef.getTableName());
-
-        log.info("Column Metadata:" + tableDef.getColumnMetadata());
-
 
         Iterator i$ = data.getRows().iterator();
         while(i$.hasNext()) {
@@ -133,7 +185,7 @@ public class ReplicationFollower {
             ArrayList<Object> beforeValues = Lists.newArrayList((Object[]) row.getKey());
             ArrayList<Object> afterValues = Lists.newArrayList((Object[]) row.getValue());
 
-            ChangeSet myChangeSet = new ChangeSet("unknown", tableDef.getTableName());
+            ChangeSet myChangeSet = new ChangeSet("unknown", tableDef.getTableName(), ChangeType.UPDATE);
 
             // Build before values
             for (int x=0; x<beforeValues.size(); x++) {
@@ -164,8 +216,7 @@ public class ReplicationFollower {
                 myChangeSet.addFieldChange(fieldChange);
             }
 
-            log.info("Changeset:"+myChangeSet);
+            log.info("Updated:"+myChangeSet);
         }
-
     }
 }

@@ -7,12 +7,14 @@ import java.util.Map;
 public class ChangeSet {
     private String tableName;
     private String databaseName;
+    private ChangeType changeType;
 
     private Map<String, FieldChange> changeSet = Maps.newHashMap();
 
-    public ChangeSet(String databaseName, String tableName) {
+    public ChangeSet(String databaseName, String tableName, ChangeType changeType) {
         this.databaseName = databaseName;
         this.tableName = tableName;
+        this.changeType = changeType;
     }
 
     public void addFieldChange(FieldChange fieldChange) {

@@ -14,21 +14,22 @@ public class Main {
 ```
 
 ## What does a ChangeSet look like?
-> ChangeSet [
->    databaseName='name_of_database',
->    changeType=update|insert|delete,
->    changeSet=[
->      'fieldName'= {
->        fieldName='field_name',
->        fieldType=Integer|Timestamp|Boolean|Date|String|TinyInteger|Uknown,
->        beforeValue='value before the change',
->        afterValue='value after the change',
->        wasModified=true|false,
->      },
->      ...
->    ]
-> ]
-
+```
+ ChangeSet [
+    databaseName='name_of_database',
+    changeType=update|insert|delete,
+    changeSet=[
+      'fieldName'= {
+        fieldName='field_name',
+        fieldType=Integer|Timestamp|Boolean|Date|String|TinyInteger|Uknown,
+        beforeValue='value before the change',
+        afterValue='value after the change',
+        wasModified=true|false,
+      },
+      ...
+    ]
+ ]
+```
 
 ## Writing your own ChangeSetHandlers
 ChangeSetHandlers implement a simple interface, so you can easily ETL the changes to whatever system you'd like in whatever format you'd like.

@@ -17,6 +17,7 @@ public class Main {
 ```
  ChangeSet [
     databaseName='name_of_database',
+    tableName='name_of_table',
     changeType=update|insert|delete,
     changeSet=[
       'fieldName'= {

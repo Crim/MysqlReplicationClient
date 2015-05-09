@@ -2,7 +2,7 @@
 A small wrapper around https://github.com/shyiko/mysql-binlog-connector-java that handles parsing out Mysql row based replication events into a more easily digestible format, as well as adding in an easy to/write handler call back for handling these events.
 
 ## Example Code
-The following code snippet registers a simple trace/log output ChangeSetHandler.  For any Insert/Update/Delete events that come across replication it will log the change.
+The following code snippet registers a simple trace/log output ChangeSetHandler.  For any Insert/Update/Delete events that come across replication it will log the change.  It also writes its current binlog position into a flat file named 'replication.status'
 ```
 public class Main {
     public static void main(String args[]) throws IOException {

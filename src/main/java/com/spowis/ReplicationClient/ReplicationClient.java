@@ -2,6 +2,7 @@ package com.spowis.ReplicationClient;
 
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
 import com.github.shyiko.mysql.binlog.event.*;
+import com.github.shyiko.mysql.binlog.event.deserialization.EventDeserializer;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.spowis.ReplicationClient.ChangeSet.ChangeSet;
@@ -11,6 +12,7 @@ import com.spowis.ReplicationClient.ChangeSetHandler.IChangeSetHandler;
 import com.spowis.ReplicationClient.DatabaseSchema.DatabaseColumnDef;
 import com.spowis.ReplicationClient.DatabaseSchema.DatabaseSchemaDef;
 import com.spowis.ReplicationClient.DatabaseSchema.DatabaseTableDef;
+import com.spowis.ReplicationClient.LogPositionHandler.ILogPositionHandler;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
@@ -28,9 +30,11 @@ public class ReplicationClient {
     private String database;
 
     private DatabaseConnection dbConnection = null;
+    private BinaryLogClient client = null;
     private Map<String, DatabaseSchemaDef> schemaDef = Maps.newHashMap();
 
     private List<IChangeSetHandler> handlers = Lists.newArrayList();
+    private List<ILogPositionHandler> logPositionHandlers = Lists.newArrayList();
 
     public ReplicationClient(String hostname, String username, String password, Integer port) {
         setHostname(hostname);
@@ -38,10 +42,16 @@ public class ReplicationClient {
         setPassword(password);
         setPort(port);
         setDbConnection(new DatabaseConnection(getHostname(), getUsername(), getPassword(), getPort()));
+
+        client = new BinaryLogClient(getHostname(), getPort(), getUsername(), getPassword());
     }
 
     public void registerChangesetHandler(IChangeSetHandler handler) {
         handlers.add(handler);
+    }
+
+    public void registerLogPositionHandler(ILogPositionHandler logPositionHandler) {
+        logPositionHandlers.add(logPositionHandler);
     }
 
     public Integer getPort() {
@@ -118,13 +128,34 @@ public class ReplicationClient {
 
     public void go() throws IOException {
         // Setup binary log client
-        BinaryLogClient client = new BinaryLogClient(getHostname(), getPort(), getUsername(), getPassword());
         client.registerEventListener(new BinaryLogClient.EventListener() {
             public void onEvent(Event event) {
-                log.info("Got EventType:" + event.getHeader().getEventType());
+                log.info("Got EventType " + event.getHeader().getEventType().toString());
+
+                // If its a table map event
                 if (event.getHeader().getEventType().equals(EventType.TABLE_MAP)) {
                     parseTableMapEvent(event, (TableMapEventData) event.getData());
                     return;
+                }  if (event.getHeader().getEventType() == EventType.ROTATE) {
+                    EventData eventData = event.getData();
+                    RotateEventData rotateEventData;
+                    if (eventData instanceof EventDeserializer.EventDataWrapper) {
+                        rotateEventData = (RotateEventData) ((EventDeserializer.EventDataWrapper) eventData).getInternal();
+                    } else {
+                        rotateEventData = (RotateEventData) eventData;
+                    }
+                    log.info("Binlog file:" + rotateEventData.getBinlogFilename()+ " position:" + rotateEventData.getBinlogPosition());
+                    handleLogPosition(rotateEventData.getBinlogFilename(), rotateEventData.getBinlogPosition());
+                    //binlogFilename = rotateEventData.getBinlogFilename();
+                    //binlogPosition = rotateEventData.getBinlogPosition();
+                } else if (event.getHeader() instanceof EventHeaderV4) {
+                    EventHeaderV4 trackableEventHeader = (EventHeaderV4) event.getHeader();
+                    long nextBinlogPosition = trackableEventHeader.getNextPosition();
+                    if (nextBinlogPosition > 0) {
+                       // binlogPosition = nextBinlogPosition;
+                        log.info("Binlog Position: "+trackableEventHeader.getNextPosition());
+                        handleLogPosition(trackableEventHeader.getNextPosition());
+                    }
                 }
 
                 List<ChangeSet> changeSets = null;
@@ -135,10 +166,12 @@ public class ReplicationClient {
                 } else if (event.getHeader().getEventType().equals(EventType.EXT_DELETE_ROWS)) {
                     changeSets = parseDeleteEvent(event, (DeleteRowsEventData) event.getData());
                 }
+
+                // If we have any changesets
                 if (changeSets != null && changeSets.size() > 0) {
+                    // Handle them
                     handleChangeSets(changeSets);
                 }
-
             }
         });
         client.connect();
@@ -149,6 +182,18 @@ public class ReplicationClient {
             for (ChangeSet changeSet: changeSets) {
                 handler.handle(changeSet);
             }
+        }
+    }
+
+    private void handleLogPosition(long position) {
+        for (ILogPositionHandler handler: logPositionHandlers) {
+            handler.updatePosition(position);
+        }
+    }
+
+    private void handleLogPosition(String binlogFilename, long position) {
+        for (ILogPositionHandler handler: logPositionHandlers) {
+            handler.updatePosition(binlogFilename, position);
         }
     }
 
@@ -270,5 +315,11 @@ public class ReplicationClient {
             changeSets.add(myChangeSet);
         }
         return changeSets;
+    }
+
+    public void setStartPosition(String binlogFile, long position) {
+        log.info("Setting start binlog file: "+ binlogFile+ " position: "+position);
+        client.setBinlogFilename(binlogFile);
+        client.setBinlogPosition(position);
     }
 }

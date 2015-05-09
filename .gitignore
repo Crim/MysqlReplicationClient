@@ -2,4 +2,4 @@
 *.jar
 target/
 .idea
-main.java
+Main.java

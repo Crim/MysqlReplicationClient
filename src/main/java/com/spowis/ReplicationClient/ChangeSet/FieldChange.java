@@ -1,4 +1,4 @@
-package com.pardot.ReplicationFollower.ChangeSet;
+package com.spowis.ReplicationClient.ChangeSet;
 
 public class FieldChange {
     private String fieldName;

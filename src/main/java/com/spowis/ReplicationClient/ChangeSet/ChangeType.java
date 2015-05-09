@@ -1,4 +1,4 @@
-package com.pardot.ReplicationFollower.ChangeSet;
+package com.spowis.ReplicationClient.ChangeSet;
 
 public enum ChangeType {
     UPDATE,

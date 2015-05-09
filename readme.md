@@ -1,4 +1,4 @@
-import com.pardot.ReplicationFollower.ChangeSetHandler.TraceChangeSetHandler;
+import com.spowis.ReplicationClient.ChangeSetHandler.TraceChangeSetHandler;
 import java.io.IOException;
 
 public class Main {

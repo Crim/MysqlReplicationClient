@@ -1,4 +1,4 @@
-package com.pardot.ReplicationFollower.ChangeSet;
+package com.spowis.ReplicationClient.ChangeSet;
 
 import com.google.common.collect.Maps;
 

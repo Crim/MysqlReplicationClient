@@ -1,12 +1,10 @@
-package com.pardot.ReplicationFollower.DatabaseSchema;
+package com.spowis.ReplicationClient.DatabaseSchema;
 
 import com.github.shyiko.mysql.binlog.event.TableMapEventData;
-import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
 
 import java.util.BitSet;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class DatabaseTableDef {

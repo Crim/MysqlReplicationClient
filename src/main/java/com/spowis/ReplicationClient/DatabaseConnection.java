@@ -1,6 +1,8 @@
-import com.pardot.ReplicationFollower.DatabaseSchema.DatabaseColumnDef;
-import com.pardot.ReplicationFollower.DatabaseSchema.DatabaseSchemaDef;
-import com.pardot.ReplicationFollower.DatabaseSchema.DatabaseTableDef;
+package com.spowis.ReplicationClient;
+
+import com.spowis.ReplicationClient.DatabaseSchema.DatabaseColumnDef;
+import com.spowis.ReplicationClient.DatabaseSchema.DatabaseSchemaDef;
+import com.spowis.ReplicationClient.DatabaseSchema.DatabaseTableDef;
 import org.apache.log4j.Logger;
 
 import java.sql.*;
@@ -76,9 +78,9 @@ public class DatabaseConnection {
             getConn().close();
         }
 
-        setConn(
-            DriverManager.getConnection("jdbc:mysql://"+getHostname()+":"+getPort()+"/?" +
-                "user="+getUsername()+"&password="+getPassword())
+            setConn(
+                    DriverManager.getConnection("jdbc:mysql://" + getHostname() + ":" + getPort() + "/?" +
+                            "user=" + getUsername() + "&password="+getPassword())
             );
         } catch (SQLException e) {
             log.error("Failed to connect", e);

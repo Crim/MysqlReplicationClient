@@ -1,4 +1,4 @@
-package com.pardot.ReplicationFollower.DatabaseSchema;
+package com.spowis.ReplicationClient.DatabaseSchema;
 
 import com.github.shyiko.mysql.binlog.event.TableMapEventData;
 

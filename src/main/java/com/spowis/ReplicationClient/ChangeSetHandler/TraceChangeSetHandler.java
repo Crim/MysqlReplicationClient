@@ -1,6 +1,6 @@
-package com.pardot.ReplicationFollower.ChangeSetHandler;
+package com.spowis.ReplicationClient.ChangeSetHandler;
 
-import com.pardot.ReplicationFollower.ChangeSet.ChangeSet;
+import com.spowis.ReplicationClient.ChangeSet.ChangeSet;
 import org.apache.log4j.Logger;
 
 public class TraceChangeSetHandler implements IChangeSetHandler {

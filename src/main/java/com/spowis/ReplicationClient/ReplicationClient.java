@@ -1,14 +1,16 @@
+package com.spowis.ReplicationClient;
+
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
 import com.github.shyiko.mysql.binlog.event.*;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.pardot.ReplicationFollower.ChangeSet.ChangeSet;
-import com.pardot.ReplicationFollower.ChangeSet.ChangeType;
-import com.pardot.ReplicationFollower.ChangeSet.FieldChange;
-import com.pardot.ReplicationFollower.ChangeSetHandler.IChangeSetHandler;
-import com.pardot.ReplicationFollower.DatabaseSchema.DatabaseColumnDef;
-import com.pardot.ReplicationFollower.DatabaseSchema.DatabaseSchemaDef;
-import com.pardot.ReplicationFollower.DatabaseSchema.DatabaseTableDef;
+import com.spowis.ReplicationClient.ChangeSet.ChangeSet;
+import com.spowis.ReplicationClient.ChangeSet.ChangeType;
+import com.spowis.ReplicationClient.ChangeSet.FieldChange;
+import com.spowis.ReplicationClient.ChangeSetHandler.IChangeSetHandler;
+import com.spowis.ReplicationClient.DatabaseSchema.DatabaseColumnDef;
+import com.spowis.ReplicationClient.DatabaseSchema.DatabaseSchemaDef;
+import com.spowis.ReplicationClient.DatabaseSchema.DatabaseTableDef;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;

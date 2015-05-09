@@ -9,16 +9,16 @@ public class DatabaseConnection {
     private String hostname;
     private String username;
     private String password;
-    private String database;
+    private Integer port;
     private Connection conn = null;
 
-    public static final Logger log = Logger.getLogger(ReplicationFollower.class);
+    public static final Logger log = Logger.getLogger(ReplicationClient.class);
 
-    public DatabaseConnection(String hostname, String username, String password, String database) {
+    public DatabaseConnection(String hostname, String username, String password, Integer port) {
         setHostname(hostname);
         setUsername(username);
         setPassword(password);
-        setDatabase(database);
+        setPort(port);
     }
 
     public String getHostname() {
@@ -48,29 +48,38 @@ public class DatabaseConnection {
         return this;
     }
 
-    public String getDatabase() {
-        return database;
+    public Integer getPort() {
+        return port;
     }
 
-    public DatabaseConnection setDatabase(String database) {
-        this.database = database;
-        return this;
+    public void setPort(Integer port) {
+        this.port = port;
+    }
+
+    public Connection getConn() {
+        return conn;
+    }
+
+    public void setConn(Connection conn) {
+        this.conn = conn;
     }
 
     public boolean open() {
         try {
 
         // Don't reopen
-        if (conn != null && conn.isValid(2)) {
+        if (getConn() != null && getConn().isValid(2)) {
             return true;
         }
 
-        if (conn != null && !conn.isClosed() ) {
-            conn.close();
+        if (getConn() != null && !getConn().isClosed() ) {
+            getConn().close();
         }
 
-        conn = DriverManager.getConnection("jdbc:mysql://"+getHostname()+"/"+getDatabase()+"?" +
-                            "user="+getUsername()+"&password="+getPassword());
+        setConn(
+            DriverManager.getConnection("jdbc:mysql://"+getHostname()+":"+getPort()+"/?" +
+                "user="+getUsername()+"&password="+getPassword())
+            );
         } catch (SQLException e) {
             log.error("Failed to connect", e);
             return false;
@@ -78,7 +87,8 @@ public class DatabaseConnection {
         return true;
     }
 
-    public DatabaseSchemaDef getSchemaDef() {
+    public DatabaseSchemaDef getSchemaDef(String database) throws SQLException {
+        conn.setCatalog(database);
         DatabaseSchemaDef schemaDef = new DatabaseSchemaDef();
         try {
             DatabaseMetaData metaData = conn.getMetaData();

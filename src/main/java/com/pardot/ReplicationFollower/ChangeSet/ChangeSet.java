@@ -30,6 +30,7 @@ public class ChangeSet {
         return "ChangeSet{" +
                 "tableName='" + tableName + '\'' +
                 ", databaseName='" + databaseName + '\'' +
+                ", changeType=" + changeType +
                 ", changeSet=" + changeSet +
                 '}';
     }

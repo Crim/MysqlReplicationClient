@@ -1,11 +1,11 @@
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
 import com.github.shyiko.mysql.binlog.event.*;
-import com.github.shyiko.mysql.binlog.event.deserialization.ByteArrayEventDataDeserializer;
-import com.github.shyiko.mysql.binlog.event.deserialization.EventDeserializer;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.pardot.ReplicationFollower.ChangeSet.ChangeSet;
 import com.pardot.ReplicationFollower.ChangeSet.ChangeType;
 import com.pardot.ReplicationFollower.ChangeSet.FieldChange;
+import com.pardot.ReplicationFollower.ChangeSetHandler.IChangeSetHandler;
 import com.pardot.ReplicationFollower.DatabaseSchema.DatabaseColumnDef;
 import com.pardot.ReplicationFollower.DatabaseSchema.DatabaseSchemaDef;
 import com.pardot.ReplicationFollower.DatabaseSchema.DatabaseTableDef;
@@ -13,33 +13,53 @@ import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.io.Serializable;
-import java.sql.Types;
+import java.sql.SQLException;
 import java.util.*;
 
-public class ReplicationFollower {
-    public static final Logger log = Logger.getLogger(ReplicationFollower.class);
+public class ReplicationClient {
+    public static final Logger log = Logger.getLogger(ReplicationClient.class);
 
     private String hostname;
     private String username;
     private String password;
+    private Integer port;
     private String database;
 
     private DatabaseConnection dbConnection = null;
-    private DatabaseSchemaDef schemaDef = null;
+    private Map<String, DatabaseSchemaDef> schemaDef = Maps.newHashMap();
 
-    private TableMapEventData lastTableMap = null;
+    private List<IChangeSetHandler> handlers = Lists.newArrayList();
 
-    public ReplicationFollower(String hostname, String username, String password, String database) {
+    public ReplicationClient(String hostname, String username, String password, Integer port) {
         setHostname(hostname);
         setUsername(username);
         setPassword(password);
-        setDatabase(database);
-
-        dbConnection = new DatabaseConnection(getHostname(), getUsername(), getPassword(), getDatabase());
+        setPort(port);
+        setDbConnection(new DatabaseConnection(getHostname(), getUsername(), getPassword(), getPort()));
     }
 
-    public DatabaseSchemaDef getSchemaDef() {
-        return schemaDef;
+    public void registerChangesetHandler(IChangeSetHandler handler) {
+        handlers.add(handler);
+    }
+
+    public Integer getPort() {
+        return port;
+    }
+
+    public void setPort(Integer port) {
+        this.port = port;
+    }
+
+    public DatabaseConnection getDbConnection() {
+        return dbConnection;
+    }
+
+    public void setDbConnection(DatabaseConnection dbConnection) {
+        this.dbConnection = dbConnection;
+    }
+
+    public List<IChangeSetHandler> getHandlers() {
+        return handlers;
     }
 
     public String getDatabase() {
@@ -54,7 +74,7 @@ public class ReplicationFollower {
         return hostname;
     }
 
-    public ReplicationFollower setHostname(String hostname) {
+    public ReplicationClient setHostname(String hostname) {
         this.hostname = hostname;
         return this;
     }
@@ -63,7 +83,7 @@ public class ReplicationFollower {
         return username;
     }
 
-    public ReplicationFollower setUsername(String username) {
+    public ReplicationClient setUsername(String username) {
         this.username = username;
         return this;
     }
@@ -72,37 +92,49 @@ public class ReplicationFollower {
         return password;
     }
 
-    public ReplicationFollower setPassword(String password) {
+    public ReplicationClient setPassword(String password) {
         this.password = password;
         return this;
     }
 
-    public void loadSchema() {
+    public DatabaseSchemaDef loadSchema(String database) {
         if (!dbConnection.open()) {
             log.error("Failed to open connection!");
-            return;
+            throw new RuntimeException("Failed to open DB Connection!");
         }
-        schemaDef = dbConnection.getSchemaDef();
+        // If we've haven't already loaded the schema before
+        if (!schemaDef.containsKey(database)) {
+            // load the def
+            try {
+                schemaDef.put(database, getDbConnection().getSchemaDef(database));
+            } catch (SQLException e) {
+                throw new RuntimeException("Failed to load schema for database "+database, e);
+            }
+        }
+        return schemaDef.get(database);
     }
 
     public void go() throws IOException {
-
-        BinaryLogClient client = new BinaryLogClient(getHostname(), 3306, getUsername(), getPassword());
-
+        // Setup binary log client
+        BinaryLogClient client = new BinaryLogClient(getHostname(), getPort(), getUsername(), getPassword());
         client.registerEventListener(new BinaryLogClient.EventListener() {
-
             public void onEvent(Event event) {
                 log.info("Got EventType:" + event.getHeader().getEventType());
-                //log.info("Data:"+event.getData());
+                if (event.getHeader().getEventType().equals(EventType.TABLE_MAP)) {
+                    parseTableMapEvent(event, (TableMapEventData) event.getData());
+                    return;
+                }
 
+                List<ChangeSet> changeSets = null;
                 if (event.getHeader().getEventType().equals(EventType.EXT_UPDATE_ROWS)) {
-                    handleUpdateEvent(event, (UpdateRowsEventData) event.getData());
-                } else if (event.getHeader().getEventType().equals(EventType.TABLE_MAP)) {
-                    handleTableMapEvent(event, (TableMapEventData) event.getData());
+                    changeSets = parseUpdateEvent(event, (UpdateRowsEventData) event.getData());
                 } else if (event.getHeader().getEventType().equals(EventType.EXT_WRITE_ROWS)) {
-                    handleInsertEvent(event, (WriteRowsEventData)event.getData());
+                    changeSets = parseInsertEvent(event, (WriteRowsEventData)event.getData());
                 } else if (event.getHeader().getEventType().equals(EventType.EXT_DELETE_ROWS)) {
-                    handleDeleteEvent(event, (DeleteRowsEventData) event.getData());
+                    changeSets = parseDeleteEvent(event, (DeleteRowsEventData) event.getData());
+                }
+                if (changeSets != null && changeSets.size() > 0) {
+                    handleChangeSets(changeSets);
                 }
 
             }
@@ -110,17 +142,27 @@ public class ReplicationFollower {
         client.connect();
     }
 
-    private void handleDeleteEvent(Event event, DeleteRowsEventData data) {
+    private void handleChangeSets(List<ChangeSet> changeSets) {
+        for (IChangeSetHandler handler : getHandlers()) {
+            for (ChangeSet changeSet: changeSets) {
+                handler.handle(changeSet);
+            }
+        }
+    }
+
+    private List<ChangeSet> parseDeleteEvent(Event event, DeleteRowsEventData data) {
         long tableId = data.getTableId();
-        DatabaseTableDef tableDef = getSchemaDef().getTable(tableId);
+        DatabaseTableDef tableDef = loadSchema(getDatabase()).getTable(tableId);
         log.info("Deleting from table " + tableDef.getTableName());
+
+        List<ChangeSet> changeSets = Lists.newArrayList();
 
         Iterator i$ = data.getRows().iterator();
         while(i$.hasNext()) {
             Serializable[] row = (Serializable[])i$.next();
             ArrayList<Object> beforeValues = Lists.newArrayList((Object[]) row);
 
-            ChangeSet myChangeSet = new ChangeSet("unknown", tableDef.getTableName(), ChangeType.DELETE);
+            ChangeSet myChangeSet = new ChangeSet(getDatabase(), tableDef.getTableName(), ChangeType.DELETE);
 
             // Builder before values
             for (int x=0; x<beforeValues.size(); x++) {
@@ -133,25 +175,28 @@ public class ReplicationFollower {
                 fieldChange.setBeforeValue(after);
                 myChangeSet.addFieldChange(fieldChange);
             }
-            log.info("Deleted:"+myChangeSet);
+            changeSets.add(myChangeSet);
         }
+
+        return changeSets;
     }
 
-    public void handleQueryEvent(Event event, QueryEventData data) {
-
+    public List<ChangeSet> parseQueryEvent(Event event, QueryEventData data) {
+        return Lists.newArrayList();
     }
 
-    private void handleInsertEvent(Event event, WriteRowsEventData data) {
+    private List<ChangeSet> parseInsertEvent(Event event, WriteRowsEventData data) {
         long tableId = data.getTableId();
-        DatabaseTableDef tableDef = getSchemaDef().getTable(tableId);
+        DatabaseTableDef tableDef = loadSchema(getDatabase()).getTable(tableId);
         log.info("Inserting table " + tableDef.getTableName());
+        List<ChangeSet> changeSets = Lists.newArrayList();
 
         Iterator i$ = data.getRows().iterator();
         while(i$.hasNext()) {
             Serializable[] row = (Serializable[])i$.next();
             ArrayList<Object> afterValues = Lists.newArrayList((Object[]) row);
 
-            ChangeSet myChangeSet = new ChangeSet("unknown", tableDef.getTableName(), ChangeType.UPDATE);
+            ChangeSet myChangeSet = new ChangeSet(getDatabase(), tableDef.getTableName(), ChangeType.UPDATE);
 
             // Builder after values
             for (int x=0; x<afterValues.size(); x++) {
@@ -164,19 +209,24 @@ public class ReplicationFollower {
                 fieldChange.setAfterValue(after);
                 myChangeSet.addFieldChange(fieldChange);
             }
-            log.info("Inserted:"+myChangeSet);
+            changeSets.add(myChangeSet);
         }
+        return changeSets;
     }
 
-    public void handleTableMapEvent(Event event, TableMapEventData data) {
-        log.info("Updating TableMap: " + data.getTable());
-        getSchemaDef().updateTable(data);
+    public void parseTableMapEvent(Event event, TableMapEventData data) {
+        log.info("Updating TableMap: " + data.getDatabase() + "." + data.getTable());
+
+        // Load schema for this database
+        loadSchema(data.getDatabase()).updateTable(data);
+        setDatabase(data.getDatabase());
     }
 
-    public void handleUpdateEvent(Event event, UpdateRowsEventData data) {
+    public List<ChangeSet> parseUpdateEvent(Event event, UpdateRowsEventData data) {
         long tableId = data.getTableId();
-        DatabaseTableDef tableDef = getSchemaDef().getTable(tableId);
+        DatabaseTableDef tableDef = loadSchema(getDatabase()).getTable(tableId);
         log.info("Updated table " + tableDef.getTableName());
+        List<ChangeSet> changeSets = Lists.newArrayList();
 
         Iterator i$ = data.getRows().iterator();
         while(i$.hasNext()) {
@@ -185,7 +235,7 @@ public class ReplicationFollower {
             ArrayList<Object> beforeValues = Lists.newArrayList((Object[]) row.getKey());
             ArrayList<Object> afterValues = Lists.newArrayList((Object[]) row.getValue());
 
-            ChangeSet myChangeSet = new ChangeSet("unknown", tableDef.getTableName(), ChangeType.UPDATE);
+            ChangeSet myChangeSet = new ChangeSet(getDatabase(), tableDef.getTableName(), ChangeType.UPDATE);
 
             // Build before values
             for (int x=0; x<beforeValues.size(); x++) {
@@ -215,8 +265,8 @@ public class ReplicationFollower {
                 fieldChange.setAfterValue(after);
                 myChangeSet.addFieldChange(fieldChange);
             }
-
-            log.info("Updated:"+myChangeSet);
+            changeSets.add(myChangeSet);
         }
+        return changeSets;
     }
 }
